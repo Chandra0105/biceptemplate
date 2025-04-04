@@ -1,0 +1,60 @@
+trigger:
+- main  # Automatically triggers the pipeline on changes to the 'main' branch
+
+pool:
+  vmImage: 'ubuntu-latest'  # Use the latest Ubuntu environment for pipeline execution
+
+stages:
+- stage: DeployAndSecure
+  displayName: Deploy Azure Resources and Perform Security Scan
+  jobs:
+  - job: DeployResources
+    displayName: Deploy Azure Resources
+    steps:
+
+    # Checkout Repository
+    - task: Checkout@1
+      displayName: Checkout repository
+
+
+    # Deploy Bicep Template
+    - task: AzureCLI@2
+      displayName: Deploy Bicep Template
+      inputs:
+        azureSubscription: 'defenderdemo2'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az deployment group create \
+            --resource-group Jaya0116 \
+            --template-file main.bicep \
+            --parameters webAppName=webappjaya01 \
+                        location=centralus \
+                        skuName=F1 \
+                        policyDefinitionId=/providers/Microsoft.Authorization/policyDefinitions/b40e7bcd-a1e5-47fe-b9cf-2f534d0bfb7d \
+                        policyAssignmentName=DefenderForCloudPolicyAssignment
+
+    # Assign Role to Managed Identity for Policy Assignment
+    - task: AzureCLI@2
+      displayName: Assign Role to Managed Identity
+      inputs:
+        azureSubscription: 'defenderdemo2'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          PRINCIPAL_ID=$(az resource show \
+            --name DefenderForCloudPolicyAssignment \
+            --resource-group Jaya0116 \
+            --resource-type Microsoft.Authorization/policyAssignments \
+            --query "identity.principalId" -o tsv)
+          az role assignment create \
+            --assignee $PRINCIPAL_ID \
+            --role Contributor \
+            --scope /subscriptions/<52b6a0e7-07da-40d4-8a13-00f53dce34f5>/resourceGroups/<Jaya0116>
+
+    # Security Scan Task
+    - task: MicrosoftSecurityDevOps@1
+      displayName: Perform Security Scan
+      inputs:
+        scanType: Code  # Security scan for code vulnerabilities
+        failOnCriticalIssues: true  # Fail the pipeline if critical issues are found
